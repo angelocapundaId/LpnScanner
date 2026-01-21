@@ -1,0 +1,19 @@
+<resources>
+    <!-- Azul do logo -->
+    <color name="colorPrimary">#0F2A4D</color>
+    <color name="colorPrimaryVariant">#0A1E38</color>  <!-- um tom mais escuro -->
+    <color name="colorOnPrimary">#FFFFFF</color>
+
+    <color name="colorSecondary">#183864</color>       <!-- variação do mesmo tom -->
+    <color name="colorOnSecondary">#FFFFFF</color>
+
+    <color name="colorSurface">#F4F6FA</color>
+    <color name="colorOnSurface">#1B1C1E</color>
+
+    <color name="colorOutline">#0F2A4D</color>
+    <color name="colorPrimaryPressed">#12325C</color>
+    <color name="listContainer">#E5E5E5</color>
+
+    <color name="colorError">#FF0000</color>
+
+</resources>
