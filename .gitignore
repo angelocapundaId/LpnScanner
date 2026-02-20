@@ -223,4 +223,8 @@ fabric.properties
 
 !/gradle/wrapper/gradle-wrapper.jar
 
+# Emulator (não versionar)
+emulator/
+**/emulator/
+
 # End of https://www.toptal.com/developers/gitignore/api/android,androidstudio,gradle,java
