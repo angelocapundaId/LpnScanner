@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="20dp"
+    android:background="@android:color/white">
+
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Relatórios"
+        android:textStyle="bold"
+        android:textSize="26sp"
+        android:textColor="#1F1F1F"
+        android:layout_marginBottom="18dp"/>
+
+    <!-- Selecionar período -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnPickRange"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Selecionar período"
+        android:textAllCaps="false"
+        android:textSize="16sp"
+        android:layout_marginBottom="12dp"
+        app:cornerRadius="16dp"
+        app:icon="@drawable/ic_calendar"
+        app:iconPadding="10dp"
+        app:iconGravity="textStart"
+        app:backgroundTint="#0E2A47"
+        android:textColor="@android:color/white"/>
+
+    <TextView
+        android:id="@+id/tvRange"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Período: (não selecionado)"
+        android:textSize="14sp"
+        android:textColor="#444444"
+        android:layout_marginBottom="18dp"/>
+
+    <!-- PDF período -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnGeneratePdfPeriod"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Gerar relatório do período (PDF)"
+        android:textAllCaps="false"
+        android:textSize="16sp"
+        android:layout_marginBottom="12dp"
+        app:cornerRadius="16dp"
+        app:iconPadding="10dp"
+        app:iconGravity="textStart"
+        app:backgroundTint="#0E2A47"
+        android:textColor="@android:color/white"/>
+
+    <!-- PDF hoje -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnGeneratePdfToday"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Gerar relatório de hoje (PDF)"
+        android:textAllCaps="false"
+        android:textSize="16sp"
+        android:layout_marginBottom="18dp"
+        app:cornerRadius="16dp"
+        app:iconPadding="10dp"
+        app:iconGravity="textStart"
+        app:backgroundTint="#0E2A47"
+        android:textColor="@android:color/white"/>
+
+    <!-- CSV período -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnGenerateCsvPeriod"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Gerar CSV do período"
+        android:textAllCaps="false"
+        android:textSize="16sp"
+        android:layout_marginBottom="12dp"
+        app:cornerRadius="16dp"
+        app:icon="@drawable/ic_file_csv"
+        app:iconPadding="10dp"
+        app:iconGravity="textStart"
+        app:backgroundTint="#0E2A47"
+        android:textColor="@android:color/white"/>
+
+    <!-- CSV hoje -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnGenerateCsvToday"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:text="Gerar CSV de hoje"
+        android:textAllCaps="false"
+        android:textSize="16sp"
+        app:cornerRadius="16dp"
+        app:icon="@drawable/ic_file_csv"
+        app:iconPadding="10dp"
+        app:iconGravity="textStart"
+        app:backgroundTint="#0E2A47"
+        android:textColor="@android:color/white"/>
+
+</LinearLayout>

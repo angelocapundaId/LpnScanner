@@ -1,0 +1,39 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.LPNScanner" parent="Theme.Material3.Light.NoActionBar">
+        <!-- Cores -->
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryContainer">@color/colorPrimaryVariant</item>
+        <item name="colorOnPrimary">@color/colorOnPrimary</item>
+
+        <item name="colorSecondary">@color/colorSecondary</item>
+        <item name="colorOnSecondary">@color/colorOnSecondary</item>
+
+        <item name="colorSurface">@color/colorSurface</item>
+        <item name="colorOnSurface">@color/colorOnSurface</item>
+        <item name="colorOutline">@color/colorOutline</item>
+
+        <item name="android:statusBarColor">@color/colorPrimary</item>
+        <item name="android:navigationBarColor">@color/colorPrimary</item>
+
+        <!-- Aplica os estilos -->
+        <item name="materialButtonStyle">@style/Widget.LPN.PrimaryButton</item>
+        <item name="materialButtonOutlinedStyle">@style/Widget.LPN.OutlinedButton</item>
+    </style>
+
+    <!-- 🔹 Botão principal preenchido -->
+    <style name="Widget.LPN.PrimaryButton" parent="Widget.Material3.Button">
+        <item name="android:backgroundTint">@color/colorPrimary</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="cornerRadius">10dp</item>  <!-- ← menos arredondado -->
+        <item name="rippleColor">@color/colorPrimaryPressed</item>
+    </style>
+
+    <!-- 🔹 Botão contornado -->
+    <style name="Widget.LPN.OutlinedButton" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:strokeColor">@color/colorOutline</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="cornerRadius">10dp</item>  <!-- ← igual ao principal -->
+        <item name="rippleColor">@color/colorPrimaryPressed</item>
+        <item name="android:backgroundTint">@color/colorPrimary</item>
+    </style>
+</resources>

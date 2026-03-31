@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Instrução + contador -->
+        <TextView
+            android:id="@+id/tvHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Aponte a câmera para a etiqueta LPN • 0 coletadas"
+            android:padding="12dp"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:background="#14172A" />
+
+        <!-- Preview da Câmera -->
+        <androidx.camera.view.PreviewView
+            android:id="@+id/previewView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:keepScreenOn="true"
+            app:implementationMode="compatible"
+            android:background="#000"/>
+
+        <!-- Rodapé com botões -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:padding="12dp"
+            android:background="#14172A">
+
+            <!-- Era Voltar: agora finaliza e devolve todas -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnBack"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                style="@style/Widget.LPN.OutlinedButton"
+                android:text="Concluir"/>
+
+            <Space
+                android:layout_width="12dp"
+                android:layout_height="0dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnFlash"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                style="@style/Widget.LPN.PrimaryButton"
+                android:text="Lanterna"/>
+        </LinearLayout>
+    </LinearLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

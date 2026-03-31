@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/colorSurface"
+    tools:context=".LoginActivity">
+
+
+    <!-- Logo superior (grande) -->
+    <ImageView
+        android:id="@+id/imgLogo"
+        android:layout_width="match_parent"
+        android:layout_height="100dp"
+        android:layout_marginTop="40dp"
+        android:layout_marginBottom="16dp"
+        android:src="@drawable/logo_infra_id"
+        android:contentDescription="@string/app_name"
+        android:scaleType="fitCenter"
+        android:adjustViewBounds="true"
+        android:layout_alignParentTop="true"
+        android:layout_centerHorizontal="true" />
+
+    <!-- Bloco central -->
+    <LinearLayout
+        android:id="@+id/containerLogin"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:layout_centerInParent="true"
+        android:paddingHorizontal="32dp">
+
+        <!-- Título -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LPN Scanner"
+            android:textStyle="bold"
+            android:textSize="22sp"
+            android:textColor="@color/colorOnSurface"
+            android:layout_marginBottom="24dp"
+            android:gravity="center" />
+
+        <!-- ID do Operador -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/etOperatorId"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="ID do Operador"
+                android:inputType="text"
+                android:maxLines="1" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- PIN com ícone de olho personalizado -->
+        <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:endIconMode="custom"
+            app:endIconDrawable="@drawable/ic_visibility_off"
+            app:endIconTint="@color/colorPrimary"
+            app:passwordToggleEnabled="true"
+            app:passwordToggleTint="@color/colorPrimary">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/etPin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Senha (4+ dígitos)"
+                android:inputType="numberPassword"
+                android:maxLines="1" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Botão Login -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnLogin"
+            style="@style/Widget.LPN.PrimaryButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="Login" />
+    </LinearLayout>
+
+    <!-- Rodapé fixo -->
+    <TextView
+        android:id="@+id/tvVersion"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Versão: 1.0"
+        android:textSize="12sp"
+        android:textColor="@color/colorOnSurface"
+        android:layout_alignParentBottom="true"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="16dp" />
+
+</RelativeLayout>

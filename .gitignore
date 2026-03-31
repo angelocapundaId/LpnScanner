@@ -1,0 +1,42 @@
+# Android / Gradle
+.gradle/
+build/
+app/build/
+local.properties
+
+# Android Studio / IDE
+.idea/
+*.iml
+
+# Logs
+*.log
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Android SDK local
+build-tools/
+platform-tools/
+platforms/
+emulator/
+cmdline-tools/
+tools/
+licenses/
+sources/
+.knownPackages
+
+# Binários
+*.exe
+*.dll
+*.so
+*.class
+
+# Compactados
+*.zip
+*.7z
+*.rar
+
+# Ambiente
+.env
+.env.local
