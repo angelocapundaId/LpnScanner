@@ -3,12 +3,7 @@ package com.empresa.lpnscanner;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.media.AudioManager;
-import android.media.ToneGenerator;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -98,7 +93,7 @@ public class CameraActivity extends AppCompatActivity {
         btnBack.setOnClickListener(v -> finishAndReturn());
         btnFlash.setOnClickListener(v -> toggleTorch());
 
-        tvHint.setText("Aponte a câmera para a etiqueta");
+        tvHint.setText("Aponte a câmera para o código SSCC");
 
         checkAndRequestPermission();
     }
@@ -164,7 +159,7 @@ public class CameraActivity extends AppCompatActivity {
 
             scanner.process(image)
                     .addOnSuccessListener(this::handleBarcodes)
-                    .addOnCompleteListener(t -> imageProxy.close());
+                    .addOnCompleteListener(task -> imageProxy.close());
 
         } catch (Exception e) {
             imageProxy.close();
@@ -172,17 +167,13 @@ public class CameraActivity extends AppCompatActivity {
     }
 
     /**
-     * REGRA FINAL:
-     * - Captura somente AI 90 e AI 00
-     * - Aceita apenas 20 ou 40 DÍGITOS reais
-     * - Ignora tudo-zero
-     * - Fecha ao capturar os dois
+     * NOVA REGRA:
+     * - Captura somente o SSCC (AI 00)
+     * - Ignora os demais códigos
+     * - Finaliza assim que encontrar o primeiro SSCC válido
      */
     private void handleBarcodes(List<Barcode> barcodes) {
         if (finishing || barcodes == null) return;
-
-        String code90 = null;
-        String code00 = null;
 
         for (Barcode bc : barcodes) {
             if (bc.getRawValue() == null) continue;
@@ -191,24 +182,13 @@ public class CameraActivity extends AppCompatActivity {
 
             if (norm.isEmpty()) continue;
             if (isAllZerosDigits(norm)) continue;
-            if (!isValidDigitLength(norm)) continue;
 
-            if (code90 == null && containsAi90(norm)) {
-                code90 = norm;
-            }
+            String sscc = extractAi00(norm);
+            if (sscc == null) continue;
 
-            if (code00 == null && containsAi00(norm)) {
-                code00 = norm;
-            }
-
-            if (code90 != null && code00 != null) break;
-        }
-
-        if (code90 != null) addIfNew(code90);
-        if (code00 != null) addIfNew(code00);
-
-        if (hasAi90Collected() && hasAi00Collected()) {
+            addIfNew(sscc);
             finishAndReturn();
+            return;
         }
     }
 
@@ -218,10 +198,40 @@ public class CameraActivity extends AppCompatActivity {
         return value.toUpperCase(Locale.ROOT).replaceAll("[^0-9A-Z()<>]", "").trim();
     }
 
-    private boolean isValidDigitLength(String s) {
-        String digits = s.replaceAll("\\D+", "");
-        int len = digits.length();
-        return len == 20 || len == 40;
+    /**
+     * Extrai somente o AI 00 (SSCC).
+     * Exemplos aceitos:
+     * (00)378911507000035230
+     * 00378911507000035230
+     * <00>378911507000035230
+     */
+    private String extractAi00(String s) {
+        String digitsOnly = s.replaceAll("\\D+", "");
+
+        // Caso venha no formato puro: 00 + 18 dígitos
+        if (digitsOnly.length() >= 20 && digitsOnly.startsWith("00")) {
+            return digitsOnly.substring(0, 20);
+        }
+
+        // Caso venha com marcador (00)
+        int idx = s.indexOf("(00)");
+        if (idx >= 0) {
+            String tail = s.substring(idx + 4).replaceAll("\\D+", "");
+            if (tail.length() >= 18) {
+                return "00" + tail.substring(0, 18);
+            }
+        }
+
+        // Caso venha com marcador <00>
+        idx = s.indexOf("<00>");
+        if (idx >= 0) {
+            String tail = s.substring(idx + 4).replaceAll("\\D+", "");
+            if (tail.length() >= 18) {
+                return "00" + tail.substring(0, 18);
+            }
+        }
+
+        return null;
     }
 
     private boolean isAllZerosDigits(String s) {
@@ -233,29 +243,12 @@ public class CameraActivity extends AppCompatActivity {
         return true;
     }
 
-    private boolean containsAi90(String s) {
-        return s.contains("(90)") || s.startsWith("90");
-    }
-
-    private boolean containsAi00(String s) {
-        return s.contains("(00)") || s.contains("<00>") || s.startsWith("00");
-    }
-
     private void addIfNew(String code) {
         if (seen.add(code)) {
+            collected.clear(); // garante que só haverá 1 retorno
             collected.add(code);
-            Toast.makeText(this, "Coletado: " + code, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "SSCC coletado: " + code, Toast.LENGTH_SHORT).show();
         }
-    }
-
-    private boolean hasAi90Collected() {
-        for (String v : collected) if (containsAi90(v)) return true;
-        return false;
-    }
-
-    private boolean hasAi00Collected() {
-        for (String v : collected) if (containsAi00(v)) return true;
-        return false;
     }
 
     private void finishAndReturn() {
