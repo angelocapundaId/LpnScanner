@@ -26,26 +26,25 @@ import com.itextpdf.layout.properties.TextAlignment;
 
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
-/**
- * DailyReportsPDF
- *
- * ✅ Reestruturação do relatório (mais enxuto e hierárquico)
- * ✅ Nova regra de validação: agora considera OK:
- *    - SSCC (AI 00): "00" + 18 dígitos (20 chars) OU SSCC puro com 18 dígitos
- *    - GS1 do "SECOND": cadeia que começa com 90 e contém AIs 37 e 10 (com ou sem separador GS)
- * ✅ Exceções agrupadas por tipo (em vez de listar tudo)
- * ✅ Resumo por posição e operador ignora itens com 0 leituras válidas
- * ✅ Anexo detalhado opcional e limitado (para não explodir páginas)
- */
 public class DailyReportsPDF {
 
     private static final String TAG = "DailyReportsPDF";
 
-    // ===== Ajustes de "boas práticas" do relatório =====
-    private static final boolean INCLUDE_ANEXO_DETALHADO = true;   // se quiser PDF bem enxuto, coloque false
-    private static final int MAX_ANEXO_SCANS_TOTAL = 500;          // limita linhas no anexo
+    private static final boolean INCLUDE_ANEXO_DETALHADO = true;
+    private static final int MAX_ANEXO_SCANS_TOTAL = 700;
 
     private final Context context;
     private final FirebaseFirestore db;
@@ -58,33 +57,11 @@ public class DailyReportsPDF {
         this.db = FirebaseFirestore.getInstance();
     }
 
-    // =========================
-    //  API pública
-    // =========================
-
-    // ✅ Mantém como está: diário
     public void gerarRelatorioDiario() {
-        Calendar start = Calendar.getInstance();
-        start.set(Calendar.HOUR_OF_DAY, 0);
-        start.set(Calendar.MINUTE, 0);
-        start.set(Calendar.SECOND, 0);
-        start.set(Calendar.MILLISECOND, 0);
-
-        Calendar end = Calendar.getInstance();
-        end.set(Calendar.HOUR_OF_DAY, 23);
-        end.set(Calendar.MINUTE, 59);
-        end.set(Calendar.SECOND, 59);
-        end.set(Calendar.MILLISECOND, 999);
-
-        String dataHoje = dateFormat.format(start.getTime());
-
-        Timestamp startTs = new Timestamp(start.getTime());
-        Timestamp endTs = new Timestamp(end.getTime());
-
-        buscarDadosEGerarPdf(dataHoje, startTs, endTs);
+        CalendarRange range = buildTodayRange();
+        buscarDadosEGerarPdf(range.label, range.startTs, range.endTs);
     }
 
-    // ✅ NOVO: por período (ex: 28/01/2026 até 03/02/2026)
     public void gerarRelatorioPeriodo(String dataInicio, String dataFim) {
         try {
             Date di = dateFormat.parse(dataInicio);
@@ -95,38 +72,34 @@ public class DailyReportsPDF {
                 return;
             }
 
-            Calendar start = Calendar.getInstance();
+            Calendar start = java.util.Calendar.getInstance();
             start.setTime(di);
-            start.set(Calendar.HOUR_OF_DAY, 0);
-            start.set(Calendar.MINUTE, 0);
-            start.set(Calendar.SECOND, 0);
-            start.set(Calendar.MILLISECOND, 0);
+            start.set(java.util.Calendar.HOUR_OF_DAY, 0);
+            start.set(java.util.Calendar.MINUTE, 0);
+            start.set(java.util.Calendar.SECOND, 0);
+            start.set(java.util.Calendar.MILLISECOND, 0);
 
-            Calendar end = Calendar.getInstance();
+            Calendar end = java.util.Calendar.getInstance();
             end.setTime(df);
-            end.set(Calendar.HOUR_OF_DAY, 23);
-            end.set(Calendar.MINUTE, 59);
-            end.set(Calendar.SECOND, 59);
-            end.set(Calendar.MILLISECOND, 999);
+            end.set(java.util.Calendar.HOUR_OF_DAY, 23);
+            end.set(java.util.Calendar.MINUTE, 59);
+            end.set(java.util.Calendar.SECOND, 59);
+            end.set(java.util.Calendar.MILLISECOND, 999);
 
             if (end.before(start)) {
                 Toast.makeText(context, "Data final não pode ser menor que a inicial.", Toast.LENGTH_LONG).show();
                 return;
             }
 
-            String labelPeriodo = dataInicio + " a " + dataFim;
-            buscarDadosEGerarPdf(labelPeriodo, new Timestamp(start.getTime()), new Timestamp(end.getTime()));
+            String label = dataInicio + " a " + dataFim;
+            buscarDadosEGerarPdf(label, new Timestamp(start.getTime()), new Timestamp(end.getTime()));
 
         } catch (Exception e) {
             Toast.makeText(context, "Erro nas datas. Use dd/MM/yyyy", Toast.LENGTH_LONG).show();
         }
     }
 
-    // =========================
-    //  Core: busca -> agrega -> PDF
-    // =========================
     private void buscarDadosEGerarPdf(String periodoLabel, Timestamp startOfRange, Timestamp endOfRange) {
-
         db.collection("sessions")
                 .whereGreaterThanOrEqualTo("startedAt", startOfRange)
                 .whereLessThanOrEqualTo("startedAt", endOfRange)
@@ -172,23 +145,21 @@ public class DailyReportsPDF {
                 });
     }
 
-    // =========================
-    //  Parsing Firestore -> Models
-    // =========================
     private List<SessionData> parseSessions(QuerySnapshot sessionsSnap) {
         List<SessionData> out = new ArrayList<>();
+
         for (QueryDocumentSnapshot doc : sessionsSnap) {
             SessionData s = new SessionData();
             s.sessionId = doc.getId();
             s.operatorId = safeStr(doc.getString("operatorId"));
             s.operatorName = safeStr(doc.getString("operatorName"));
-            s.position = safeStr(doc.getString("position"));
             s.startedAt = doc.getTimestamp("startedAt");
             s.finishedAt = doc.getTimestamp("finishedAt");
+            s.status = safeStr(doc.getString("status"));
 
-            Long ts = doc.getLong("totalScans");
-            if (ts == null) ts = doc.getLong("total");
-            s.totalScans = ts != null ? ts.intValue() : null;
+            Long total = doc.getLong("total");
+            if (total == null) total = doc.getLong("totalScans");
+            s.totalScans = total != null ? total.intValue() : 0;
 
             out.add(s);
         }
@@ -199,12 +170,17 @@ public class DailyReportsPDF {
 
     private List<ScanData> parseScans(QuerySnapshot scansSnap) {
         List<ScanData> out = new ArrayList<>();
+
         for (QueryDocumentSnapshot doc : scansSnap) {
             ScanData s = new ScanData();
 
-            // Normaliza mantendo GS1 quando existir
             s.lpnRaw = safeStr(doc.getString("lpn"));
             s.lpnNormalized = normalizeScan(s.lpnRaw);
+
+            s.positionRaw = safeStr(doc.getString("position"));
+            s.positionNormalized = normalizePosition(s.positionRaw);
+
+            s.localTime = safeStr(doc.getString("localTime"));
 
             Timestamp ts = doc.getTimestamp("timestamp");
             if (ts == null) ts = doc.getTimestamp("createdAt");
@@ -213,11 +189,9 @@ public class DailyReportsPDF {
             Boolean manual = doc.getBoolean("manual");
             s.manual = manual != null && manual;
 
-            s.position = safeStr(doc.getString("position"));
-            s.scanType = safeStr(doc.getString("scanType")); // SECOND | LAST | LEGACY
-
-            // Classifica conforme nova regra
-            s.kind = classifyLpn(s.lpnNormalized);
+            s.ssccValid = isSsccOk(s.lpnNormalized);
+            s.positionValid = isPositionOk(s.positionNormalized);
+            s.validPair = s.ssccValid && s.positionValid;
 
             out.add(s);
         }
@@ -226,154 +200,120 @@ public class DailyReportsPDF {
         return out;
     }
 
-    // =========================
-    //  Aggregação (regras novas)
-    // =========================
     private DayReport buildReport(String periodoLabel, List<SessionData> sessions) {
         DayReport r = new DayReport();
         r.reportDate = periodoLabel;
         r.sessions = sessions;
 
-        Set<String> positionsVisited = new HashSet<>();
-        Set<String> operatorsVisited = new HashSet<>();
+        Set<String> uniqueSsccSet = new HashSet<>();
+        Set<String> uniquePositionSet = new HashSet<>();
+        Set<String> operatorSet = new HashSet<>();
 
         Map<String, PositionSummary> byPosition = new LinkedHashMap<>();
         Map<String, OperatorSummary> byOperator = new LinkedHashMap<>();
+        Map<String, Integer> duplicatedSsccCounter = new HashMap<>();
+        Map<InvalidReason, Integer> invalidByReason = new LinkedHashMap<>();
+
+        for (InvalidReason reason : InvalidReason.values()) {
+            invalidByReason.put(reason, 0);
+        }
 
         int sessionsVazias = 0;
         int totalScans = 0;
+        int validPairs = 0;
+        int invalidScans = 0;
         int totalManual = 0;
 
-        int okScans = 0;
-        int invalidScans = 0;
-
-        // Tipos que você disse que agora captura: SECOND e "4º" (que na prática é SSCC/LAST)
-        int okSscc = 0;
-        int okSecondGs1 = 0;
-
-        Map<String, Integer> lpnOccurrences = new HashMap<>();
-
-        // Agrupamento de exceções
-        Map<InvalidReason, Integer> invalidByReason = new LinkedHashMap<>();
-        for (InvalidReason ir : InvalidReason.values()) invalidByReason.put(ir, 0);
-
-        // Unicidade:
-        // - SSCC: canonicaliza para "00"+18 dígitos (20 chars)
-        // - GS1 SECOND: usa normalized inteiro (para estatística, mas não mistura com SSCC)
-        Set<String> uniqueSscc = new HashSet<>();
-        Set<String> uniqueGs1 = new HashSet<>();
-
         for (SessionData sess : sessions) {
-            String opName = isBlank(sess.operatorName) ? "SEM_OPERADOR" : sess.operatorName;
-            operatorsVisited.add(opName);
+            String operator = isBlank(sess.operatorName) ? "SEM_OPERADOR" : sess.operatorName;
+            operatorSet.add(operator);
 
-            String posKey = isBlank(sess.position) ? "SEM_POSICAO" : sess.position;
-            if (!"SEM_POSICAO".equals(posKey)) positionsVisited.add(posKey);
+            if (sess.scans == null || sess.scans.isEmpty()) {
+                sessionsVazias++;
+                continue;
+            }
 
-            int scansCount = (sess.scans != null) ? sess.scans.size() : 0;
-            if (scansCount == 0) sessionsVazias++;
-
-            Date sessStart = sess.startedAt != null ? sess.startedAt.toDate() : null;
-            Date sessEnd = sess.finishedAt != null ? sess.finishedAt.toDate() : null;
-
-            PositionSummary ps = byPosition.computeIfAbsent(posKey, PositionSummary::new);
-            ps.sessions++;
-            ps.operators.add(opName);
-            ps.updateMinMax(sessStart, sessEnd);
-
-            OperatorSummary os = byOperator.computeIfAbsent(opName, OperatorSummary::new);
+            OperatorSummary os = byOperator.computeIfAbsent(operator, OperatorSummary::new);
             os.sessions++;
-            if (!"SEM_POSICAO".equals(posKey)) os.positions.add(posKey);
-
-            if (sess.scans == null) continue;
 
             for (ScanData sc : sess.scans) {
                 totalScans++;
                 if (sc.manual) totalManual++;
 
-                if (sc.kind == LpnKind.OK_SSCC) {
-                    okScans++;
-                    okSscc++;
+                String pos = isBlank(sc.positionNormalized) ? "SEM_POSICAO" : sc.positionNormalized;
+                PositionSummary ps = byPosition.computeIfAbsent(pos, PositionSummary::new);
 
-                    String canonical = canonicalSscc(sc.lpnNormalized);
-                    uniqueSscc.add(canonical);
+                ps.sessions++;
+                ps.operators.add(operator);
+                os.positions.add(pos);
 
-                    // duplicidade (para SSCC e GS1 separadamente, mas aqui a duplicidade principal é SSCC)
-                    lpnOccurrences.put(canonical, lpnOccurrences.getOrDefault(canonical, 0) + 1);
+                if (sc.validPair) {
+                    validPairs++;
 
-                    ps.okSscc++;
-                    os.okSscc++;
-                } else if (sc.kind == LpnKind.OK_GS1_SECOND) {
-                    okScans++;
-                    okSecondGs1++;
+                    String canonicalSscc = canonicalSscc(sc.lpnNormalized);
+                    uniqueSsccSet.add(canonicalSscc);
+                    uniquePositionSet.add(pos);
 
-                    uniqueGs1.add(sc.lpnNormalized);
-                    lpnOccurrences.put("GS1:" + sc.lpnNormalized, lpnOccurrences.getOrDefault("GS1:" + sc.lpnNormalized, 0) + 1);
+                    duplicatedSsccCounter.put(canonicalSscc,
+                            duplicatedSsccCounter.getOrDefault(canonicalSscc, 0) + 1);
 
-                    ps.okGs1++;
-                    os.okGs1++;
+                    ps.validCount++;
+                    os.validCount++;
                 } else {
                     invalidScans++;
-                    ps.invalid++;
-                    os.invalid++;
 
-                    InvalidReason reason = inferInvalidReason(sc.lpnNormalized);
+                    InvalidReason reason = inferInvalidReason(sc);
                     invalidByReason.put(reason, invalidByReason.getOrDefault(reason, 0) + 1);
 
+                    ps.invalidCount++;
+                    os.invalidCount++;
+
                     if (!isBlank(sc.lpnNormalized) && r.invalidSamples.size() < 12) {
-                        r.invalidSamples.add(sc.lpnNormalized);
+                        r.invalidSamples.add(
+                                "POS=" + safeOr(sc.positionNormalized, "SEM_POSICAO")
+                                        + " | SSCC=" + safeOr(sc.lpnNormalized, "VAZIO")
+                        );
                     }
                 }
             }
         }
 
-        // Básicos
+        for (Map.Entry<String, Integer> e : duplicatedSsccCounter.entrySet()) {
+            if (e.getValue() > 1) {
+                r.duplicatedSscc.put(e.getKey(), e.getValue());
+            }
+        }
+
         r.totalSessions = sessions.size();
         r.sessionsVazias = sessionsVazias;
         r.totalScans = totalScans;
         r.totalManual = totalManual;
-
-        r.okScans = okScans;
+        r.validPairs = validPairs;
         r.invalidScans = invalidScans;
-
-        r.uniqueSscc = uniqueSscc.size();
-        r.uniqueGs1 = uniqueGs1.size();
-
-        r.positionsCount = positionsVisited.size();
-        r.operatorsCount = operatorsVisited.size();
-
-        r.okSscc = okSscc;
-        r.okGs1Second = okSecondGs1;
-
-        // Duplicadas (mostra só as mais relevantes)
-        for (Map.Entry<String, Integer> e : lpnOccurrences.entrySet()) {
-            if (e.getValue() != null && e.getValue() > 1) {
-                r.duplicatedLpns.put(e.getKey(), e.getValue());
-            }
-        }
-
-        // Exceções agrupadas
+        r.uniqueSscc = uniqueSsccSet.size();
+        r.uniquePositions = uniquePositionSet.size();
+        r.operatorsCount = operatorSet.size();
         r.invalidByReason = invalidByReason;
 
-        // Listas
         r.byPosition = new ArrayList<>(byPosition.values());
-        // ✅ Ordena por produtividade (OK total)
-        r.byPosition.sort((a, b) -> Integer.compare(b.okTotal(), a.okTotal()));
+        r.byPosition.sort((a, b) -> Integer.compare(b.validCount, a.validCount));
 
         r.byOperator = new ArrayList<>(byOperator.values());
-        r.byOperator.sort((a, b) -> Integer.compare(b.okTotal(), a.okTotal()));
+        r.byOperator.sort((a, b) -> Integer.compare(b.validCount, a.validCount));
 
-        // Alertas (agora mais úteis)
-        if (r.sessionsVazias > 0) r.alerts.add("Sessões sem coleta: " + r.sessionsVazias);
-        if (!r.duplicatedLpns.isEmpty()) r.alerts.add("Itens duplicados (SSCC/GS1): " + r.duplicatedLpns.size());
-        if (r.invalidScans > 0) r.alerts.add("Scans fora do padrão: " + r.invalidScans);
+        if (sessionsVazias > 0) {
+            r.alerts.add("Operações sem leituras: " + sessionsVazias);
+        }
+        if (!r.duplicatedSscc.isEmpty()) {
+            r.alerts.add("SSCCs duplicados: " + r.duplicatedSscc.size());
+        }
+        if (invalidScans > 0) {
+            r.alerts.add("Leituras inválidas: " + invalidScans);
+        }
 
         return r;
     }
 
-    // =========================
-    //  PDF render (mais enxuto)
-    // =========================
     private void gerarPdf(DayReport report, String periodoLabel) {
         Uri uri = null;
         Document document = null;
@@ -388,18 +328,11 @@ public class DailyReportsPDF {
             document = new Document(pdf);
 
             renderCabecalho(document, report.reportDate);
-
-            // 1) EXECUTIVO: painel + alertas (1 página em geral)
             renderPainelExecutivo(document, report);
-
-            // 2) OPERACIONAL: posições e operadores (sem lixo: SEM_POSICAO, etc)
             renderResumoPorPosicao(document, report);
             renderResumoPorOperador(document, report);
-
-            // 3) EXCEÇÕES agrupadas
             renderExcecoes(document, report);
 
-            // 4) ANEXO (opcional e limitado)
             if (INCLUDE_ANEXO_DETALHADO) {
                 renderAnexoDetalhes(document, report);
             }
@@ -407,18 +340,21 @@ public class DailyReportsPDF {
             document.close();
 
             Toast.makeText(context, "Relatório salvo em Downloads", Toast.LENGTH_LONG).show();
-            Log.d(TAG, "PDF OK | sessões=" + report.totalSessions + " | okScans=" + report.okScans);
+            Log.d(TAG, "PDF OK | sessões=" + report.totalSessions + " | válidos=" + report.validPairs);
 
         } catch (Exception e) {
             Log.e(TAG, "Erro ao gerar PDF", e);
             Toast.makeText(context, "Erro ao gerar PDF", Toast.LENGTH_LONG).show();
-            try { if (document != null) document.close(); } catch (Exception ignored) {}
+            try {
+                if (document != null) document.close();
+            } catch (Exception ignored) { }
         }
     }
 
     private void renderCabecalho(Document doc, String periodo) {
-        doc.add(new Paragraph("RELATÓRIO DE LPNs")
-                .setBold().setFontSize(18)
+        doc.add(new Paragraph("RELATÓRIO DE OPERAÇÕES - LPN SCANNER")
+                .setBold()
+                .setFontSize(18)
                 .setTextAlignment(TextAlignment.CENTER));
 
         doc.add(new Paragraph("Período: " + periodo)
@@ -429,75 +365,60 @@ public class DailyReportsPDF {
         doc.add(new Paragraph(" "));
     }
 
-    /**
-     * Painel executivo: métricas úteis + eficiência
-     */
     private void renderPainelExecutivo(Document doc, DayReport r) {
         doc.add(tituloSecao("PAINEL DO PERÍODO"));
 
+        double eficiencia = r.totalScans > 0 ? (r.validPairs * 100.0 / r.totalScans) : 0.0;
         int camera = Math.max(0, r.totalScans - r.totalManual);
-        double eficiencia = r.totalScans > 0 ? (r.okScans * 100.0 / r.totalScans) : 0.0;
 
-        doc.add(new Paragraph("Scans totais: " + r.totalScans).setBold());
-        doc.add(new Paragraph("Scans válidos: " + r.okScans + " | Inválidos: " + r.invalidScans));
+        doc.add(new Paragraph("Operações: " + r.totalSessions).setBold());
+        doc.add(new Paragraph("Leituras totais: " + r.totalScans));
+        doc.add(new Paragraph("Leituras válidas (posição + SSCC): " + r.validPairs));
+        doc.add(new Paragraph("Leituras inválidas: " + r.invalidScans));
         doc.add(new Paragraph("Eficiência: " + String.format(Locale.getDefault(), "%.1f", eficiencia) + "%"));
-        doc.add(new Paragraph("Sessões: " + r.totalSessions + " (vazias: " + r.sessionsVazias + ")"));
-        doc.add(new Paragraph("Operadores ativos: " + r.operatorsCount + " | Posições atendidas: " + r.positionsCount));
+        doc.add(new Paragraph("SSCCs únicos: " + r.uniqueSscc));
+        doc.add(new Paragraph("Posições atendidas: " + r.uniquePositions));
+        doc.add(new Paragraph("Operadores ativos: " + r.operatorsCount));
         doc.add(new Paragraph("Método: Manual: " + r.totalManual + " | Câmera: " + camera));
 
         doc.add(new Paragraph(" "));
-        doc.add(new Paragraph("Tipos válidos :").setBold());
-        doc.add(new Paragraph("SSCC (AI00): " + r.okSscc + " | Únicos: " + r.uniqueSscc));
-        doc.add(new Paragraph("GS1 SECOND (90/37/10): " + r.okGs1Second + " | Únicos: " + r.uniqueGs1));
-
-        doc.add(new Paragraph(" "));
         doc.add(new Paragraph("ALERTAS").setBold());
+
         if (r.alerts.isEmpty()) {
             doc.add(new Paragraph("Nenhum alerta relevante no período."));
         } else {
-            for (String a : r.alerts) doc.add(new Paragraph("• " + a));
+            for (String a : r.alerts) {
+                doc.add(new Paragraph("• " + a));
+            }
         }
 
         separador(doc);
     }
 
-    /**
-     * Resumo por posição:
-     * ✅ ignora posições sem scans válidos (evita poluição)
-     * ✅ ignora SEM_POSICAO (por padrão)
-     */
     private void renderResumoPorPosicao(Document doc, DayReport r) {
-        doc.add(tituloSecao("RESUMO POR POSIÇÃO (apenas com leituras válidas)"));
+        doc.add(tituloSecao("RESUMO POR POSIÇÃO"));
 
         boolean any = false;
 
         for (PositionSummary ps : r.byPosition) {
             if ("SEM_POSICAO".equals(ps.position)) continue;
-            if (ps.okTotal() <= 0) continue;
+            if (ps.validCount <= 0 && ps.invalidCount <= 0) continue;
 
             any = true;
 
             doc.add(new Paragraph(ps.position).setBold());
-            doc.add(new Paragraph("OK total: " + ps.okTotal()
-                    + " | SSCC: " + ps.okSscc
-                    + " | GS1: " + ps.okGs1
-                    + " | Inválidos: " + ps.invalid));
-            doc.add(new Paragraph("Sessões: " + ps.sessions + " | Operadores: " + ps.operators.size()));
-            doc.add(new Paragraph("Início: " + fmtTime(ps.minStart) + " | Fim: " + fmtTime(ps.maxEnd)));
+            doc.add(new Paragraph("Leituras válidas: " + ps.validCount + " | Inválidas: " + ps.invalidCount));
+            doc.add(new Paragraph("Ocorrências: " + ps.sessions + " | Operadores: " + ps.operators.size()));
             doc.add(new Paragraph(" "));
         }
 
         if (!any) {
-            doc.add(new Paragraph("Sem posições com leituras válidas no período."));
+            doc.add(new Paragraph("Sem posições registradas no período."));
         }
 
         separador(doc);
     }
 
-    /**
-     * Resumo por operador:
-     * ✅ mostra produtividade e taxa de erro
-     */
     private void renderResumoPorOperador(Document doc, DayReport r) {
         doc.add(tituloSecao("RESUMO POR OPERADOR"));
 
@@ -508,75 +429,63 @@ public class DailyReportsPDF {
         }
 
         for (OperatorSummary os : r.byOperator) {
-            int okTotal = os.okTotal();
-            int total = okTotal + os.invalid;
-            double erro = total > 0 ? (os.invalid * 100.0 / total) : 0.0;
-            double mediaOkPorSessao = os.sessions > 0 ? (okTotal * 1.0 / os.sessions) : 0.0;
+            int total = os.validCount + os.invalidCount;
+            double erro = total > 0 ? (os.invalidCount * 100.0 / total) : 0.0;
 
             doc.add(new Paragraph(os.operatorName).setBold());
-            doc.add(new Paragraph("OK total: " + okTotal
-                    + " | SSCC: " + os.okSscc
-                    + " | GS1: " + os.okGs1
-                    + " | Inválidos: " + os.invalid
+            doc.add(new Paragraph("Leituras válidas: " + os.validCount + " | Inválidas: " + os.invalidCount));
+            doc.add(new Paragraph("Operações: " + os.sessions
+                    + " | Posições: " + countWithoutSemPosicao(os.positions)
                     + " | Erro: " + String.format(Locale.getDefault(), "%.1f", erro) + "%"));
-            doc.add(new Paragraph("Sessões: " + os.sessions
-                    + " | Posições: " + os.positions.size()
-                    + " | OK/sessão: " + String.format(Locale.getDefault(), "%.2f", mediaOkPorSessao)));
             doc.add(new Paragraph(" "));
         }
 
         separador(doc);
     }
 
-    /**
-     * Exceções:
-     * ✅ duplicadas limitadas
-     * ✅ inválidos por motivo (agrupado)
-     */
     private void renderExcecoes(Document doc, DayReport r) {
         doc.add(tituloSecao("EXCEÇÕES"));
 
-        doc.add(new Paragraph("Sessões sem coleta: " + r.sessionsVazias).setBold());
+        doc.add(new Paragraph("Operações sem leituras: " + r.sessionsVazias).setBold());
 
-        doc.add(new Paragraph("Itens duplicados (SSCC/GS1): " + r.duplicatedLpns.size()).setBold());
-        if (!r.duplicatedLpns.isEmpty()) {
+        doc.add(new Paragraph("SSCCs duplicados: " + r.duplicatedSscc.size()).setBold());
+        if (!r.duplicatedSscc.isEmpty()) {
             int shown = 0;
-            for (Map.Entry<String, Integer> e : r.duplicatedLpns.entrySet()) {
+            for (Map.Entry<String, Integer> e : r.duplicatedSscc.entrySet()) {
                 doc.add(new Paragraph("• " + e.getKey() + " (" + e.getValue() + "x)"));
-                if (++shown >= 12) {
-                    int rest = r.duplicatedLpns.size() - shown;
-                    if (rest > 0) doc.add(new Paragraph("... (mais " + rest + ")"));
+                shown++;
+                if (shown >= 12) {
+                    int rest = r.duplicatedSscc.size() - shown;
+                    if (rest > 0) {
+                        doc.add(new Paragraph("... (mais " + rest + ")"));
+                    }
                     break;
                 }
             }
         }
 
-        doc.add(new Paragraph("Scans fora do padrão: " + r.invalidScans).setBold());
+        doc.add(new Paragraph("Leituras inválidas: " + r.invalidScans).setBold());
         if (r.invalidScans > 0) {
-
             doc.add(new Paragraph("Por motivo:").setBold());
             for (Map.Entry<InvalidReason, Integer> e : r.invalidByReason.entrySet()) {
-                if (e.getValue() == null || e.getValue() <= 0) continue;
+                if (e.getValue() <= 0) continue;
                 doc.add(new Paragraph("• " + e.getKey().label + ": " + e.getValue()));
             }
 
             if (!r.invalidSamples.isEmpty()) {
                 doc.add(new Paragraph(" "));
                 doc.add(new Paragraph("Amostras (até 12):").setBold());
-                for (String s : r.invalidSamples) doc.add(new Paragraph("• " + s));
+                for (String s : r.invalidSamples) {
+                    doc.add(new Paragraph("• " + s));
+                }
             }
         }
 
         separador(doc);
     }
 
-    /**
-     * Anexo:
-     * ✅ só entra se flag ligada
-     * ✅ limita total de linhas no PDF
-     */
     private void renderAnexoDetalhes(Document doc, DayReport r) {
-        doc.add(tituloSecao("ANEXO - DETALHAMENTO (limitado)"));
+        doc.add(tituloSecao("ANEXO - DETALHAMENTO"));
 
         int printed = 0;
 
@@ -585,25 +494,26 @@ public class DailyReportsPDF {
             if (printed >= MAX_ANEXO_SCANS_TOTAL) break;
 
             doc.add(new Paragraph("Operador: " + safeOr(sess.operatorName, "SEM_OPERADOR")).setBold());
-            doc.add(new Paragraph("Posição: " + safeOr(sess.position, "SEM_POSICAO")));
+            doc.add(new Paragraph("Sessão: " + safeOr(sess.sessionId, "--")));
             doc.add(new Paragraph("Início: " + fmtTime(sess.startedAt != null ? sess.startedAt.toDate() : null)
                     + " | Fim: " + fmtTime(sess.finishedAt != null ? sess.finishedAt.toDate() : null)));
 
-            doc.add(new Paragraph("Scans:").setBold());
+            doc.add(new Paragraph("Leituras:").setBold());
 
             for (ScanData sc : sess.scans) {
                 if (printed >= MAX_ANEXO_SCANS_TOTAL) break;
 
-                String hora = sc.timestamp != null ? hourFormat.format(sc.timestamp.toDate()) : "--";
-                String metodo = sc.manual ? "MANUAL" : "CAMERA";
-                String status = (sc.kind == LpnKind.INVALID) ? "FORA_PADRAO" : "OK";
-                String tipo = isBlank(sc.scanType) ? "" : (" | " + sc.scanType);
+                String hora = !isBlank(sc.localTime)
+                        ? sc.localTime
+                        : (sc.timestamp != null ? hourFormat.format(sc.timestamp.toDate()) : "--");
 
-                String kindLabel = sc.kind == LpnKind.OK_SSCC ? "SSCC" :
-                        (sc.kind == LpnKind.OK_GS1_SECOND ? "GS1" : "INVALID");
+                String status = sc.validPair ? "OK" : "INVALIDO";
 
-                doc.add(new Paragraph("• " + hora + " | " + metodo + " | " + status
-                        + " | " + kindLabel + tipo + " | " + sc.lpnNormalized));
+                doc.add(new Paragraph("• "
+                        + hora
+                        + " | POS: " + safeOr(sc.positionNormalized, "SEM_POSICAO")
+                        + " | SSCC: " + safeOr(sc.lpnNormalized, "VAZIO")
+                        + " | " + status));
 
                 printed++;
             }
@@ -617,13 +527,10 @@ public class DailyReportsPDF {
         }
     }
 
-    // =========================
-    //  Helpers PDF/Storage
-    // =========================
     private Uri criarArquivoPDF(String periodoLabel) {
         String safe = periodoLabel.replace("/", "-").replace(" ", "_");
         ContentValues values = new ContentValues();
-        values.put(MediaStore.MediaColumns.DISPLAY_NAME, "Relatorio_LPN_" + safe + ".pdf");
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, "Relatorio_Operacoes_" + safe + ".pdf");
         values.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
         values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
 
@@ -663,103 +570,60 @@ public class DailyReportsPDF {
         return s == null || s.trim().isEmpty();
     }
 
-    /**
-     * Normalização:
-     * - remove espaços e parênteses
-     * - converte separador GS real (ASCII 29) para [GS] (pra ficar legível no PDF)
-     * - mantém dígitos e marcas de GS1 quando existirem
-     */
+    private CalendarRange buildTodayRange() {
+        java.util.Calendar start = java.util.Calendar.getInstance();
+        start.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        start.set(java.util.Calendar.MINUTE, 0);
+        start.set(java.util.Calendar.SECOND, 0);
+        start.set(java.util.Calendar.MILLISECOND, 0);
+
+        java.util.Calendar end = java.util.Calendar.getInstance();
+        end.set(java.util.Calendar.HOUR_OF_DAY, 23);
+        end.set(java.util.Calendar.MINUTE, 59);
+        end.set(java.util.Calendar.SECOND, 59);
+        end.set(java.util.Calendar.MILLISECOND, 999);
+
+        CalendarRange r = new CalendarRange();
+        r.label = dateFormat.format(start.getTime());
+        r.startTs = new Timestamp(start.getTime());
+        r.endTs = new Timestamp(end.getTime());
+        return r;
+    }
+
     private String normalizeScan(String raw) {
         if (raw == null) return "";
-        String s = raw.trim();
-
-        // GS (FNC1) costuma virar ASCII 29 no texto
-        s = s.replace("\u001D", "[GS]");
-
+        String s = raw.trim().toUpperCase(Locale.ROOT);
+        s = s.replace("\u001D", "");
         s = s.replaceAll("\\s+", "");
         s = s.replace("(", "").replace(")", "");
         s = s.replace("<", "").replace(">", "");
-
-        // alguns casos do seu log tinham prefixos como "BC2:" e pipes
-        // mantemos para diagnosticar, mas a validação vai reprovar
-        return s.toUpperCase(Locale.ROOT);
+        return s;
     }
 
-    // =========================
-    //  Nova regra de validação (SSCC + GS1 SECOND)
-    // =========================
-    private enum LpnKind { OK_SSCC, OK_GS1_SECOND, INVALID }
+    private String normalizePosition(String raw) {
+        if (raw == null) return "";
+        return raw.trim()
+                .toUpperCase(Locale.ROOT)
+                .replaceAll("[^A-Z0-9]", "");
+    }
 
-    /**
-     * SSCC válido:
-     * - 18 dígitos (SSCC puro)
-     * - OU 20 dígitos começando com "00" (AI 00 + SSCC)
-     */
     private boolean isSsccOk(String s) {
         if (isBlank(s)) return false;
-
         String digits = onlyDigits(s);
-        if (digits.length() == 18) return true;
-        if (digits.length() == 20 && digits.startsWith("00")) return true;
-
-        // se tem letras/prefixos, já não é SSCC "limpo"
-        return false;
+        return digits.length() == 20 && digits.startsWith("00");
     }
 
-    /**
-     * GS1 SECOND (sua "2ª leitura"):
-     * Aqui a ideia é aceitar a cadeia GS1 que começa em 90 e contém AIs 37 e 10.
-     * Pode vir com [GS] ou sem (concatenada).
-     *
-     * Exemplos do seu relatório antigo:
-     *  - 9069799215[GS]37000013[GS]1000000000000811521115
-     *  - 9069799215370000131000000000000811521115
-     */
-    private boolean isGs1SecondOk(String s) {
+    private boolean isPositionOk(String s) {
         if (isBlank(s)) return false;
-
-        // forma "bonita" com separador
-        String normalized = s.replace("[GS]", "\u001D"); // só pra checar presença lógica (não obrigatório)
-
-        // remove separadores pra checar cadeia
-        String compact = s.replace("[GS]", "");
-        compact = compact.replace("\u001D", "");
-
-        // deve ser digits-only após compactar (caso contrário é inválido)
-        if (!compact.matches("^\\d+$")) return false;
-
-        // regra mínima: começa com 90 e contém 37 e 10 depois
-        if (!compact.startsWith("90")) return false;
-
-        int idx37 = compact.indexOf("37", 2);
-        int idx10 = compact.indexOf("10", 2);
-
-        // tem que existir e estar na ordem
-        if (idx37 < 0 || idx10 < 0) return false;
-        if (!(idx37 < idx10)) return false;
-
-        // sanity: pelo menos algo depois do 10 (lote)
-        if (idx10 + 2 >= compact.length()) return false;
-
-        return true;
+        return s.matches("^[A-Z]{2}[0-9]{7}$");
     }
 
-    private LpnKind classifyLpn(String normalized) {
-        if (isSsccOk(normalized)) return LpnKind.OK_SSCC;
-        if (isGs1SecondOk(normalized)) return LpnKind.OK_GS1_SECOND;
-        return LpnKind.INVALID;
-    }
-
-    /**
-     * Canonical SSCC:
-     * - se veio 18 dígitos: retorna "00"+sscc
-     * - se veio 20 com "00": mantém
-     */
     private String canonicalSscc(String normalized) {
-        String d = onlyDigits(normalized);
-        if (d.length() == 18) return "00" + d;
-        if (d.length() == 20 && d.startsWith("00")) return d;
-        return normalized; // fallback (não deveria acontecer se classificado como OK_SSCC)
+        String digits = onlyDigits(normalized);
+        if (digits.length() >= 20 && digits.startsWith("00")) {
+            return digits.substring(0, 20);
+        }
+        return digits;
     }
 
     private String onlyDigits(String s) {
@@ -767,107 +631,97 @@ public class DailyReportsPDF {
         return s.replaceAll("\\D+", "");
     }
 
+    private int countWithoutSemPosicao(Set<String> positions) {
+        int count = 0;
+        for (String p : positions) {
+            if (!"SEM_POSICAO".equals(p)) count++;
+        }
+        return count;
+    }
+
+    private InvalidReason inferInvalidReason(ScanData sc) {
+        if (isBlank(sc.positionNormalized) && isBlank(sc.lpnNormalized)) {
+            return InvalidReason.POSICAO_E_SSCC_VAZIOS;
+        }
+        if (!sc.positionValid && !sc.ssccValid) {
+            return InvalidReason.POSICAO_E_SSCC_INVALIDOS;
+        }
+        if (!sc.positionValid) {
+            return InvalidReason.POSICAO_INVALIDA;
+        }
+        if (!sc.ssccValid) {
+            return InvalidReason.SSCC_INVALIDO;
+        }
+        return InvalidReason.OUTRO;
+    }
+
     private enum InvalidReason {
-        VAZIO("Vazio"),
-        TEM_LETRAS_OU_PREFIXO("Contém letras/prefixos"),
-        TAMANHO_INVALIDO("Tamanho inválido"),
-        NAO_BATE_REGRA_GS1("Não bate regra GS1 (90/37/10)");
+        POSICAO_E_SSCC_VAZIOS("Posição e SSCC vazios"),
+        POSICAO_INVALIDA("Posição inválida"),
+        SSCC_INVALIDO("SSCC inválido"),
+        POSICAO_E_SSCC_INVALIDOS("Posição e SSCC inválidos"),
+        OUTRO("Outro");
 
         final String label;
-        InvalidReason(String label) { this.label = label; }
+
+        InvalidReason(String label) {
+            this.label = label;
+        }
     }
 
-    private InvalidReason inferInvalidReason(String normalized) {
-        if (isBlank(normalized)) return InvalidReason.VAZIO;
-
-        // se tem coisas tipo "BC2:" ou letras
-        if (!normalized.matches("^[0-9\\[\\]GS\\u001D:|]+$")) {
-            return InvalidReason.TEM_LETRAS_OU_PREFIXO;
-        }
-        if (normalized.contains("BC") || normalized.contains(":") || normalized.contains("|")) {
-            return InvalidReason.TEM_LETRAS_OU_PREFIXO;
-        }
-
-        // se parece digits-only (tirando separador) mas tamanho não encaixa
-        String compact = normalized.replace("[GS]", "").replace("\u001D", "");
-        if (compact.matches("^\\d+$")) {
-            // SSCC?
-            String d = compact;
-            if (!(d.length() == 18 || (d.length() == 20 && d.startsWith("00")))) {
-                // talvez fosse GS1, mas não bateu regra
-                if (d.startsWith("90")) return InvalidReason.NAO_BATE_REGRA_GS1;
-                return InvalidReason.TAMANHO_INVALIDO;
-            }
-        }
-
-        // se começa com 90 e não bateu a regra do GS1
-        if (compact.startsWith("90")) return InvalidReason.NAO_BATE_REGRA_GS1;
-
-        return InvalidReason.TAMANHO_INVALIDO;
+    private static class CalendarRange {
+        String label;
+        Timestamp startTs;
+        Timestamp endTs;
     }
 
-    // =========================
-    //  Models internos
-    // =========================
     private static class SessionData {
         String sessionId;
         String operatorId;
         String operatorName;
-        String position;
         Timestamp startedAt;
         Timestamp finishedAt;
-        Integer totalScans;
+        String status;
+        int totalScans;
         List<ScanData> scans = new ArrayList<>();
     }
 
     private static class ScanData {
         String lpnRaw;
         String lpnNormalized;
+        String positionRaw;
+        String positionNormalized;
+        String localTime;
         Timestamp timestamp;
         boolean manual;
-        String position;
-        String scanType;
-        LpnKind kind = LpnKind.INVALID;
+
+        boolean ssccValid;
+        boolean positionValid;
+        boolean validPair;
     }
 
     private static class PositionSummary {
         final String position;
         int sessions = 0;
+        int validCount = 0;
+        int invalidCount = 0;
         final Set<String> operators = new HashSet<>();
-        Date minStart = null;
-        Date maxEnd = null;
-
-        int okSscc = 0;
-        int okGs1 = 0;
-        int invalid = 0;
 
         PositionSummary(String position) {
             this.position = position;
-        }
-
-        int okTotal() { return okSscc + okGs1; }
-
-        void updateMinMax(@Nullable Date start, @Nullable Date end) {
-            if (start != null && (minStart == null || start.before(minStart))) minStart = start;
-            if (end != null && (maxEnd == null || end.after(maxEnd))) maxEnd = end;
-            if (end == null && start != null && (maxEnd == null || start.after(maxEnd))) maxEnd = start;
         }
     }
 
     private static class OperatorSummary {
         final String operatorName;
         int sessions = 0;
+        int validCount = 0;
+        int invalidCount = 0;
         final Set<String> positions = new HashSet<>();
-
-        int okSscc = 0;
-        int okGs1 = 0;
-        int invalid = 0;
 
         OperatorSummary(String operatorName) {
             this.operatorName = operatorName;
         }
-
-        int okTotal() { return okSscc + okGs1; }
     }
 
     private static class DayReport {
@@ -877,21 +731,14 @@ public class DailyReportsPDF {
         int sessionsVazias;
         int totalScans;
         int totalManual;
-
-        int okScans;
+        int validPairs;
         int invalidScans;
-
         int uniqueSscc;
-        int uniqueGs1;
-
-        int positionsCount;
+        int uniquePositions;
         int operatorsCount;
 
-        int okSscc;
-        int okGs1Second;
-
         final List<String> invalidSamples = new ArrayList<>();
-        final Map<String, Integer> duplicatedLpns = new LinkedHashMap<>();
+        final Map<String, Integer> duplicatedSscc = new LinkedHashMap<>();
         final List<String> alerts = new ArrayList<>();
 
         Map<InvalidReason, Integer> invalidByReason = new LinkedHashMap<>();
@@ -907,16 +754,16 @@ public class DailyReportsPDF {
             r.sessionsVazias = 0;
             r.totalScans = 0;
             r.totalManual = 0;
-            r.okScans = 0;
+            r.validPairs = 0;
             r.invalidScans = 0;
             r.uniqueSscc = 0;
-            r.uniqueGs1 = 0;
-            r.positionsCount = 0;
+            r.uniquePositions = 0;
             r.operatorsCount = 0;
-            r.okSscc = 0;
-            r.okGs1Second = 0;
 
-            for (InvalidReason ir : InvalidReason.values()) r.invalidByReason.put(ir, 0);
+            for (InvalidReason ir : InvalidReason.values()) {
+                r.invalidByReason.put(ir, 0);
+            }
+
             return r;
         }
     }

@@ -24,6 +24,7 @@ import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.button.MaterialButton;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.mlkit.vision.barcode.BarcodeScanner;
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
 import com.google.mlkit.vision.barcode.BarcodeScanning;
@@ -39,10 +40,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Pattern;
 
 public class CameraActivity extends AppCompatActivity {
 
-    public static final String EXTRA_LPNS = "EXTRA_LPNS";
+    private static final Pattern POSITION_PATTERN = Pattern.compile("^[A-Z]{2}[0-9]{7}$");
 
     private PreviewView previewView;
     private MaterialButton btnBack, btnFlash;
@@ -63,10 +65,13 @@ public class CameraActivity extends AppCompatActivity {
     private boolean finishing = false;
     private boolean torchOn = false;
 
+    private String scanMode = MainActivity.MODE_LPN;
+
     private final ActivityResultLauncher<String> camPermLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
-                if (granted) startCamera();
-                else {
+                if (granted) {
+                    startCamera();
+                } else {
                     Toast.makeText(this, "Permissão de câmera negada", Toast.LENGTH_LONG).show();
                     finish();
                 }
@@ -85,17 +90,34 @@ public class CameraActivity extends AppCompatActivity {
         mainExecutor = ContextCompat.getMainExecutor(this);
         cameraExecutor = Executors.newSingleThreadExecutor();
 
-        BarcodeScannerOptions options = new BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_CODE_128)
-                .build();
-        scanner = BarcodeScanning.getClient(options);
+        scanMode = getIntent().getStringExtra(MainActivity.EXTRA_SCAN_MODE);
+        if (scanMode == null || scanMode.trim().isEmpty()) {
+            scanMode = MainActivity.MODE_LPN;
+        }
+
+        configureScanner();
+        configureHintByMode();
 
         btnBack.setOnClickListener(v -> finishAndReturn());
         btnFlash.setOnClickListener(v -> toggleTorch());
 
-        tvHint.setText("Aponte a câmera para o código SSCC");
-
         checkAndRequestPermission();
+    }
+
+    private void configureScanner() {
+        BarcodeScannerOptions options = new BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_CODE_128)
+                .build();
+
+        scanner = BarcodeScanning.getClient(options);
+    }
+
+    private void configureHintByMode() {
+        if (MainActivity.MODE_POSITION.equals(scanMode)) {
+            tvHint.setText("Aponte a câmera para o código de barras da posição");
+        } else {
+            tvHint.setText("Aponte a câmera para o código SSCC");
+        }
     }
 
     private void checkAndRequestPermission() {
@@ -108,7 +130,7 @@ public class CameraActivity extends AppCompatActivity {
     }
 
     private void startCamera() {
-        var future = ProcessCameraProvider.getInstance(this);
+        ListenableFuture<ProcessCameraProvider> future = ProcessCameraProvider.getInstance(this);
         future.addListener(() -> {
             try {
                 cameraProvider = future.get();
@@ -133,6 +155,7 @@ public class CameraActivity extends AppCompatActivity {
         analysis = new ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build();
+
         analysis.setAnalyzer(cameraExecutor, this::analyzeFrame);
 
         cameraProvider.unbindAll();
@@ -166,24 +189,41 @@ public class CameraActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * NOVA REGRA:
-     * - Captura somente o SSCC (AI 00)
-     * - Ignora os demais códigos
-     * - Finaliza assim que encontrar o primeiro SSCC válido
-     */
     private void handleBarcodes(List<Barcode> barcodes) {
-        if (finishing || barcodes == null) return;
+        if (finishing || barcodes == null || barcodes.isEmpty()) {
+            return;
+        }
 
+        if (MainActivity.MODE_POSITION.equals(scanMode)) {
+            handlePositionBarcodes(barcodes);
+        } else {
+            handleLpnBarcodes(barcodes);
+        }
+    }
+
+    private void handlePositionBarcodes(List<Barcode> barcodes) {
         for (Barcode bc : barcodes) {
-            if (bc.getRawValue() == null) continue;
+            String raw = bc.getRawValue();
+            if (raw == null) continue;
 
-            String norm = normalize(bc.getRawValue());
+            String normalized = normalizePosition(raw);
+            if (!isValidPosition(normalized)) continue;
 
-            if (norm.isEmpty()) continue;
-            if (isAllZerosDigits(norm)) continue;
+            finishWithPosition(normalized);
+            return;
+        }
+    }
 
-            String sscc = extractAi00(norm);
+    private void handleLpnBarcodes(List<Barcode> barcodes) {
+        for (Barcode bc : barcodes) {
+            String raw = bc.getRawValue();
+            if (raw == null) continue;
+
+            String normalized = normalizeBarcodeValue(raw);
+            if (normalized.isEmpty()) continue;
+            if (isAllZerosDigits(normalized)) continue;
+
+            String sscc = extractAi00(normalized);
             if (sscc == null) continue;
 
             addIfNew(sscc);
@@ -192,40 +232,49 @@ public class CameraActivity extends AppCompatActivity {
         }
     }
 
-    private String normalize(String value) {
+    private String normalizeBarcodeValue(String value) {
         value = value.replace("\u001D", "");
-        if (value.startsWith("]C1")) value = value.substring(3);
-        return value.toUpperCase(Locale.ROOT).replaceAll("[^0-9A-Z()<>]", "").trim();
+        if (value.startsWith("]C1")) {
+            value = value.substring(3);
+        }
+
+        return value.toUpperCase(Locale.ROOT)
+                .replaceAll("[^0-9A-Z()<>]", "")
+                .trim();
     }
 
-    /**
-     * Extrai somente o AI 00 (SSCC).
-     * Exemplos aceitos:
-     * (00)378911507000035230
-     * 00378911507000035230
-     * <00>378911507000035230
-     */
-    private String extractAi00(String s) {
-        String digitsOnly = s.replaceAll("\\D+", "");
+    private String normalizePosition(String value) {
+        if (value == null) return "";
+        return value.trim()
+                .toUpperCase(Locale.ROOT)
+                .replaceAll("[^A-Z0-9]", "");
+    }
 
-        // Caso venha no formato puro: 00 + 18 dígitos
+    private boolean isValidPosition(String value) {
+        if (value == null || value.isEmpty()) return false;
+
+        // Exemplo esperado: AR3010121
+        return POSITION_PATTERN.matcher(value).matches();
+    }
+
+    private String extractAi00(String value) {
+        String digitsOnly = value.replaceAll("\\D+", "");
+
         if (digitsOnly.length() >= 20 && digitsOnly.startsWith("00")) {
             return digitsOnly.substring(0, 20);
         }
 
-        // Caso venha com marcador (00)
-        int idx = s.indexOf("(00)");
+        int idx = value.indexOf("(00)");
         if (idx >= 0) {
-            String tail = s.substring(idx + 4).replaceAll("\\D+", "");
+            String tail = value.substring(idx + 4).replaceAll("\\D+", "");
             if (tail.length() >= 18) {
                 return "00" + tail.substring(0, 18);
             }
         }
 
-        // Caso venha com marcador <00>
-        idx = s.indexOf("<00>");
+        idx = value.indexOf("<00>");
         if (idx >= 0) {
-            String tail = s.substring(idx + 4).replaceAll("\\D+", "");
+            String tail = value.substring(idx + 4).replaceAll("\\D+", "");
             if (tail.length() >= 18) {
                 return "00" + tail.substring(0, 18);
             }
@@ -234,9 +283,10 @@ public class CameraActivity extends AppCompatActivity {
         return null;
     }
 
-    private boolean isAllZerosDigits(String s) {
-        String digits = s.replaceAll("\\D+", "");
+    private boolean isAllZerosDigits(String value) {
+        String digits = value.replaceAll("\\D+", "");
         if (digits.isEmpty()) return true;
+
         for (int i = 0; i < digits.length(); i++) {
             if (digits.charAt(i) != '0') return false;
         }
@@ -245,10 +295,21 @@ public class CameraActivity extends AppCompatActivity {
 
     private void addIfNew(String code) {
         if (seen.add(code)) {
-            collected.clear(); // garante que só haverá 1 retorno
+            collected.clear();
             collected.add(code);
             Toast.makeText(this, "SSCC coletado: " + code, Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void finishWithPosition(String position) {
+        if (finishing) return;
+        finishing = true;
+
+        Intent data = new Intent();
+        data.putExtra(MainActivity.EXTRA_SCAN_MODE, MainActivity.MODE_POSITION);
+        data.putExtra(MainActivity.EXTRA_POSITION, position);
+        setResult(RESULT_OK, data);
+        finish();
     }
 
     private void finishAndReturn() {
@@ -256,8 +317,15 @@ public class CameraActivity extends AppCompatActivity {
         finishing = true;
 
         Intent data = new Intent();
-        data.putStringArrayListExtra(EXTRA_LPNS, collected);
-        setResult(RESULT_OK, data);
+
+        if (MainActivity.MODE_POSITION.equals(scanMode)) {
+            setResult(RESULT_CANCELED, data);
+        } else {
+            data.putExtra(MainActivity.EXTRA_SCAN_MODE, MainActivity.MODE_LPN);
+            data.putStringArrayListExtra(MainActivity.EXTRA_LPNS, collected);
+            setResult(RESULT_OK, data);
+        }
+
         finish();
     }
 

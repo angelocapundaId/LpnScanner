@@ -31,17 +31,6 @@ import java.util.Locale;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 
-/**
- * DailyReportsCSV
- *
- * CSV orientado para BI / Dashboard.
- *
- * Header:
- * DATA_ISO;DATA_BR;HORA;ANO;MES;DIA;HORA_NUMERICA;OPERADOR_ID;OPERADOR;POSICAO;
- * FONTE_POSICAO;METODO;SCAN_TYPE;KIND;KIND_GROUP;VALID_STATUS;IS_VALID;IS_INVALID;
- * LPN_RAW;LPN_NORMALIZED;LPN_CANONICAL;SESSION_ID;SESSION_START;SESSION_END;
- * SESSION_DURATION_SECONDS;SESSION_DURATION_MINUTES;SESSION_SCAN_COUNT
- */
 public class DailyReportsCSV {
 
     private static final String TAG = "DailyReportsCSV";
@@ -57,7 +46,6 @@ public class DailyReportsCSV {
         this.context = context;
         this.db = FirebaseFirestore.getInstance();
 
-        // 1) Padronização de timezone
         TimeZone tz = TimeZone.getDefault();
         dateFormatBr.setTimeZone(tz);
         dateFormatIso.setTimeZone(tz);
@@ -174,9 +162,7 @@ public class DailyReportsCSV {
                 return;
             }
 
-            // 2) Escrita em UTF-8
             BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
-
             bw.write(buildHeader());
             bw.newLine();
             bw.flush();
@@ -200,9 +186,7 @@ public class DailyReportsCSV {
                 return;
             }
 
-            // 2) Escrita em UTF-8
             BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
-
             bw.write(buildHeader());
             bw.newLine();
 
@@ -211,7 +195,6 @@ public class DailyReportsCSV {
             for (SessionData sess : sessions) {
                 if (sess.scans == null || sess.scans.isEmpty()) continue;
 
-                // 3) Fallback usando operatorId também
                 String operadorId = safeOr(sess.operatorId, "SEM_OPERADOR_ID");
                 String operador = !isBlank(sess.operatorName)
                         ? sess.operatorName
@@ -221,8 +204,6 @@ public class DailyReportsCSV {
                 String sessionEnd = formatDateTime(sess.finishedAt);
                 long sessionDurationSeconds = getDurationSeconds(sess.startedAt, sess.finishedAt);
                 long sessionDurationMinutes = TimeUnit.SECONDS.toMinutes(sessionDurationSeconds);
-
-                // 4) Enriquecimento com contagem de scans por sessão
                 int sessionScanCount = sess.scans.size();
 
                 for (ScanData sc : sess.scans) {
@@ -232,7 +213,9 @@ public class DailyReportsCSV {
 
                     String dataIso = d != null ? dateFormatIso.format(d) : "";
                     String dataBr = d != null ? dateFormatBr.format(d) : "";
-                    String hora = d != null ? hourFormat.format(d) : "";
+                    String hora = !isBlank(sc.localTime)
+                            ? sc.localTime
+                            : (d != null ? hourFormat.format(d) : "");
 
                     Calendar cal = Calendar.getInstance();
                     if (d != null) cal.setTime(d);
@@ -245,32 +228,15 @@ public class DailyReportsCSV {
                             : "";
 
                     String metodo = sc.manual ? "MANUAL" : "CAMERA";
-                    String scanType = safeOr(sc.scanType, "");
+                    String validStatus = sc.validPair ? "VALIDO" : "INVALIDO";
+                    int isValid = sc.validPair ? 1 : 0;
+                    int isInvalid = sc.validPair ? 0 : 1;
 
-                    String posicaoFinal;
-                    String fontePosicao;
-                    if (!isBlank(sc.position)) {
-                        posicaoFinal = sc.position;
-                        fontePosicao = "SCAN";
-                    } else if (!isBlank(sess.position)) {
-                        posicaoFinal = sess.position;
-                        fontePosicao = "SESSION";
-                    } else {
-                        posicaoFinal = "SEM_POSICAO";
-                        fontePosicao = "NONE";
-                    }
-
-                    String kind = sc.kind.name();
-                    String kindGroup = mapKindGroup(sc.kind);
-                    String validStatus = sc.kind == LpnKind.INVALID ? "INVALIDO" : "VALIDO";
-                    int isValid = sc.kind == LpnKind.INVALID ? 0 : 1;
-                    int isInvalid = sc.kind == LpnKind.INVALID ? 1 : 0;
-
-                    String lpnRaw = safeOr(sc.lpnRaw, "");
-                    String lpnNormalized = safeOr(sc.lpnNormalized, "");
-                    String lpnCanonical = sc.kind == LpnKind.OK_SSCC
-                            ? canonicalSscc(lpnNormalized)
-                            : lpnNormalized;
+                    String motivo = inferInvalidReason(sc);
+                    String posicao = safeOr(sc.positionNormalized, "SEM_POSICAO");
+                    String ssccRaw = safeOr(sc.lpnRaw, "");
+                    String ssccNormalizado = safeOr(sc.lpnNormalized, "");
+                    String ssccCanonico = sc.ssccValid ? canonicalSscc(sc.lpnNormalized) : "";
 
                     bw.write(
                             csv(dataIso) + ";" +
@@ -282,18 +248,15 @@ public class DailyReportsCSV {
                                     csv(horaNumerica) + ";" +
                                     csv(operadorId) + ";" +
                                     csv(operador) + ";" +
-                                    csv(posicaoFinal) + ";" +
-                                    csv(fontePosicao) + ";" +
+                                    csv(posicao) + ";" +
                                     csv(metodo) + ";" +
-                                    csv(scanType) + ";" +
-                                    csv(kind) + ";" +
-                                    csv(kindGroup) + ";" +
                                     csv(validStatus) + ";" +
                                     csv(String.valueOf(isValid)) + ";" +
                                     csv(String.valueOf(isInvalid)) + ";" +
-                                    csv(lpnRaw) + ";" +
-                                    csv(lpnNormalized) + ";" +
-                                    csv(lpnCanonical) + ";" +
+                                    csv(motivo) + ";" +
+                                    csv(ssccRaw) + ";" +
+                                    csv(ssccNormalizado) + ";" +
+                                    csv(ssccCanonico) + ";" +
                                     csv(sess.sessionId) + ";" +
                                     csv(sessionStart) + ";" +
                                     csv(sessionEnd) + ";" +
@@ -302,7 +265,6 @@ public class DailyReportsCSV {
                                     csv(String.valueOf(sessionScanCount))
                     );
                     bw.newLine();
-
                     rows++;
                 }
             }
@@ -321,9 +283,9 @@ public class DailyReportsCSV {
 
     private String buildHeader() {
         return "DATA_ISO;DATA_BR;HORA;ANO;MES;DIA;HORA_NUMERICA;OPERADOR_ID;OPERADOR;POSICAO;" +
-                "FONTE_POSICAO;METODO;SCAN_TYPE;KIND;KIND_GROUP;VALID_STATUS;IS_VALID;IS_INVALID;" +
-                "LPN_RAW;LPN_NORMALIZED;LPN_CANONICAL;SESSION_ID;SESSION_START;SESSION_END;" +
-                "SESSION_DURATION_SECONDS;SESSION_DURATION_MINUTES;SESSION_SCAN_COUNT";
+                "METODO;VALID_STATUS;IS_VALID;IS_INVALID;INVALID_REASON;SSCC_RAW;SSCC_NORMALIZED;" +
+                "SSCC_CANONICAL;SESSION_ID;SESSION_START;SESSION_END;SESSION_DURATION_SECONDS;" +
+                "SESSION_DURATION_MINUTES;SESSION_SCAN_COUNT";
     }
 
     private String csv(String s) {
@@ -334,11 +296,8 @@ public class DailyReportsCSV {
     }
 
     private Uri criarArquivoCSV(String periodoLabel) {
-        String safe = periodoLabel
-                .replace("/", "-")
-                .replace(" ", "_");
-
-        String name = "Relatorio_LPN_" + safe + ".csv";
+        String safe = periodoLabel.replace("/", "-").replace(" ", "_");
+        String name = "Relatorio_Operacoes_" + safe + ".csv";
 
         ContentValues values = new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
@@ -354,6 +313,7 @@ public class DailyReportsCSV {
 
     private List<SessionData> parseSessions(QuerySnapshot sessionsSnap) {
         List<SessionData> out = new ArrayList<>();
+
         for (QueryDocumentSnapshot doc : sessionsSnap) {
             SessionData s = new SessionData();
             s.sessionId = doc.getId();
@@ -371,11 +331,17 @@ public class DailyReportsCSV {
 
     private List<ScanData> parseScans(QuerySnapshot scansSnap) {
         List<ScanData> out = new ArrayList<>();
+
         for (QueryDocumentSnapshot doc : scansSnap) {
             ScanData s = new ScanData();
 
             s.lpnRaw = safeStr(doc.getString("lpn"));
             s.lpnNormalized = normalizeScan(s.lpnRaw);
+
+            s.positionRaw = safeStr(doc.getString("position"));
+            s.positionNormalized = normalizePosition(s.positionRaw);
+
+            s.localTime = safeStr(doc.getString("localTime"));
 
             Timestamp ts = doc.getTimestamp("timestamp");
             if (ts == null) ts = doc.getTimestamp("createdAt");
@@ -384,9 +350,9 @@ public class DailyReportsCSV {
             Boolean manual = doc.getBoolean("manual");
             s.manual = manual != null && manual;
 
-            s.position = safeStr(doc.getString("position"));
-            s.scanType = safeStr(doc.getString("scanType"));
-            s.kind = classifyLpn(s.lpnNormalized);
+            s.ssccValid = isSsccOk(s.lpnNormalized);
+            s.positionValid = isPositionOk(s.positionNormalized);
+            s.validPair = s.ssccValid && s.positionValid;
 
             out.add(s);
         }
@@ -397,75 +363,43 @@ public class DailyReportsCSV {
 
     private String normalizeScan(String raw) {
         if (raw == null) return "";
-
-        String s = raw.trim();
-        s = s.replace("\u001D", "[GS]");
+        String s = raw.trim().toUpperCase(Locale.ROOT);
+        s = s.replace("\u001D", "");
         s = s.replaceAll("\\s+", "");
         s = s.replace("(", "").replace(")", "");
         s = s.replace("<", "").replace(">", "");
-
-        return s.toUpperCase(Locale.ROOT);
+        return s;
     }
 
-    private enum LpnKind {
-        OK_SSCC,
-        OK_GS1_SECOND,
-        INVALID
-    }
-
-    private LpnKind classifyLpn(String normalized) {
-        if (isSsccOk(normalized)) return LpnKind.OK_SSCC;
-        if (isGs1SecondOk(normalized)) return LpnKind.OK_GS1_SECOND;
-        return LpnKind.INVALID;
+    private String normalizePosition(String raw) {
+        if (raw == null) return "";
+        return raw.trim()
+                .toUpperCase(Locale.ROOT)
+                .replaceAll("[^A-Z0-9]", "");
     }
 
     private boolean isSsccOk(String s) {
         if (isBlank(s)) return false;
-
         String digits = onlyDigits(s);
-        if (digits.length() == 18) return true;
         return digits.length() == 20 && digits.startsWith("00");
     }
 
-    private boolean isGs1SecondOk(String s) {
+    private boolean isPositionOk(String s) {
         if (isBlank(s)) return false;
-
-        String compact = s.replace("[GS]", "").replace("\u001D", "");
-        if (!compact.matches("^\\d+$")) return false;
-        if (!compact.startsWith("90")) return false;
-
-        int idx37 = compact.indexOf("37", 2);
-        int idx10 = compact.indexOf("10", 2);
-
-        if (idx37 < 0 || idx10 < 0) return false;
-        if (idx37 >= idx10) return false;
-
-        return (idx10 + 2) < compact.length();
+        return s.matches("^[A-Z]{2}[0-9]{7}$");
     }
 
     private String canonicalSscc(String normalized) {
         String d = onlyDigits(normalized);
-
-        if (d.length() == 18) return "00" + d;
-        if (d.length() == 20 && d.startsWith("00")) return d;
-
-        return normalized;
+        if (d.length() >= 20 && d.startsWith("00")) {
+            return d.substring(0, 20);
+        }
+        return d;
     }
 
     private String onlyDigits(String s) {
         if (s == null) return "";
         return s.replaceAll("\\D+", "");
-    }
-
-    private String mapKindGroup(LpnKind kind) {
-        switch (kind) {
-            case OK_SSCC:
-                return "SSCC";
-            case OK_GS1_SECOND:
-                return "GS1_SECOND";
-            default:
-                return "INVALID";
-        }
     }
 
     private long getDurationSeconds(@Nullable Timestamp start, @Nullable Timestamp end) {
@@ -479,6 +413,22 @@ public class DailyReportsCSV {
         if (ts == null) return "";
         Date d = ts.toDate();
         return dateFormatIso.format(d) + " " + hourFormat.format(d);
+    }
+
+    private String inferInvalidReason(ScanData sc) {
+        if (isBlank(sc.positionNormalized) && isBlank(sc.lpnNormalized)) {
+            return "POSICAO_E_SSCC_VAZIOS";
+        }
+        if (!sc.positionValid && !sc.ssccValid) {
+            return "POSICAO_E_SSCC_INVALIDOS";
+        }
+        if (!sc.positionValid) {
+            return "POSICAO_INVALIDA";
+        }
+        if (!sc.ssccValid) {
+            return "SSCC_INVALIDO";
+        }
+        return "";
     }
 
     private String safeStr(@Nullable String s) {
@@ -508,10 +458,14 @@ public class DailyReportsCSV {
     private static class ScanData {
         String lpnRaw;
         String lpnNormalized;
+        String positionRaw;
+        String positionNormalized;
+        String localTime;
         Timestamp timestamp;
         boolean manual;
-        String position;
-        String scanType;
-        LpnKind kind = LpnKind.INVALID;
+
+        boolean ssccValid;
+        boolean positionValid;
+        boolean validPair;
     }
 }
